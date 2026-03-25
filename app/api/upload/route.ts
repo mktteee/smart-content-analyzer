@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 export const maxDuration = 30
+export const runtime = "nodejs"
 
 export async function POST(req: NextRequest) {
   try {

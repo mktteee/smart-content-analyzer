@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { GoogleGenerativeAI } from "@google/generative-ai"
 
 export const maxDuration = 30
+export const runtime = "nodejs"
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GEMINI_API_KEY
