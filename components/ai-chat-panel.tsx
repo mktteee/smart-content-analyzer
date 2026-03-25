@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Send, Bot, User, Sparkles, Loader2 } from "lucide-react"
+import { Send, Bot, User, Sparkles, Loader2, Paperclip, X, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -24,7 +24,7 @@ const initialMessages: Record<string, Message[]> = {
       id: "1",
       role: "assistant",
       content:
-        "こんにちは！機密情報チェックモードです。アップロードされたコンテンツの機密情報を自動検出し、リスク評価を行います。\n\nコンテンツを選択するか、確認したい内容について質問してください。",
+        "こんにちは！機密情報チェックモードです。PDFをアップロードすると、機密情報の検出・リスク評価を行います。\n\nファイルを添付するか、質問を入力してください。",
       timestamp: new Date(),
     },
   ],
@@ -33,7 +33,7 @@ const initialMessages: Record<string, Message[]> = {
       id: "1",
       role: "assistant",
       content:
-        "要約生成モードへようこそ。ドキュメントや動画の内容を分析し、簡潔な要約を生成します。\n\n要約のスタイル（箇条書き、段落形式など）もカスタマイズ可能です。",
+        "要約生成モードへようこそ。PDFをアップロードすると、内容を分析して簡潔な要約を生成します。\n\n📎 ボタンからPDFを添付してください。",
       timestamp: new Date(),
     },
   ],
@@ -42,7 +42,7 @@ const initialMessages: Record<string, Message[]> = {
       id: "1",
       role: "assistant",
       content:
-        "タスク抽出モードです。ミーティング議事録やドキュメントからアクションアイテムを自動抽出します。\n\n担当者の割り当てや期限の設定も提案できます。",
+        "タスク抽出モードです。PDFをアップロードすると、アクションアイテムを自動抽出します。\n\n📎 ボタンからPDFを添付してください。",
       timestamp: new Date(),
     },
   ],
@@ -50,12 +50,12 @@ const initialMessages: Record<string, Message[]> = {
 
 const suggestedPrompts: Record<string, string[]> = {
   confidential: [
-    "このドキュメントに機密情報は含まれていますか？",
+    "このPDFに機密情報は含まれていますか？",
     "個人情報の検出結果を教えてください",
     "コンプライアンスリスクを評価してください",
   ],
   summary: [
-    "このドキュメントを3つのポイントで要約してください",
+    "このPDFを3つのポイントで要約してください",
     "重要な意思決定事項をまとめてください",
     "経営陣向けのエグゼクティブサマリーを作成してください",
   ],
@@ -70,11 +70,17 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages[activeTab] || [])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [pdfUri, setPdfUri] = useState<string | null>(null)
+  const [pdfName, setPdfName] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setMessages(initialMessages[activeTab] || [])
+    setPdfUri(null)
+    setPdfName(null)
   }, [activeTab])
 
   useEffect(() => {
@@ -82,6 +88,55 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages])
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsUploading(true)
+
+    const formData = new FormData()
+    formData.append("file", file)
+
+    try {
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail ?? `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      setPdfUri(data.file_uri)
+      setPdfName(data.display_name)
+
+      // アップロード完了メッセージをチャットに追加
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `📄 **${data.display_name}** を読み込みました。\nこのPDFについて質問してください。例：「要約して」「重要なポイントを教えて」`,
+          timestamp: new Date(),
+        },
+      ])
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "不明なエラー"
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `PDFのアップロードに失敗しました。\nエラー: ${msg}`,
+          timestamp: new Date(),
+        },
+      ])
+    } finally {
+      setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return
@@ -105,10 +160,17 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage.content, history }),
+        body: JSON.stringify({
+          message: userMessage.content,
+          history,
+          ...(pdfUri ? { file_uri: pdfUri } : {}),
+        }),
       })
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail ?? `HTTP ${res.status}`)
+      }
 
       const data = await res.json()
 
@@ -121,13 +183,14 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
           timestamp: new Date(),
         },
       ])
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "不明なエラー"
       setMessages((prev) => [
         ...prev,
         {
           id: assistantId,
           role: "assistant",
-          content: "エラーが発生しました。もう一度お試しください。",
+          content: `エラーが発生しました: ${msg}`,
           timestamp: new Date(),
         },
       ])
@@ -230,6 +293,21 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
         </div>
       </ScrollArea>
 
+      {/* PDF 添付中バッジ */}
+      {pdfName && (
+        <div className="flex items-center gap-2 border-t border-border bg-blue-500/5 px-4 py-2">
+          <FileText className="size-4 shrink-0 text-blue-500" />
+          <span className="flex-1 truncate text-xs text-foreground">{pdfName}</span>
+          <button
+            onClick={() => { setPdfUri(null); setPdfName(null) }}
+            className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            title="PDFを削除"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
+
       {/* Suggestions */}
       <div className="border-t border-border px-4 py-2">
         <p className="mb-2 text-xs text-muted-foreground">よく使う質問:</p>
@@ -248,10 +326,31 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
 
       {/* Input */}
       <div className="border-t border-border p-4">
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf"
+          className="hidden"
+          onChange={handleUpload}
+        />
         <div className="flex gap-2">
+          <Button
+            size="icon"
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading || isLoading}
+            title="PDFをアップロード"
+            className="size-11 shrink-0"
+          >
+            {isUploading
+              ? <Loader2 className="size-4 animate-spin" />
+              : <Paperclip className="size-4" />
+            }
+          </Button>
           <Textarea
             ref={textareaRef}
-            placeholder="メッセージを入力..."
+            placeholder={pdfUri ? "PDFについて質問してください..." : "メッセージを入力..."}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -268,7 +367,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
           </Button>
         </div>
         <p className="mt-2 text-center text-[10px] text-muted-foreground">
-          Shift + Enter で改行 • Enter で送信
+          📎 PDFを添付 • Shift + Enter で改行 • Enter で送信
         </p>
       </div>
     </div>

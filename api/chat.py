@@ -23,6 +23,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[Message] = []
+    file_uri: str | None = None  # Gemini Files API の URI（PDFアップロード後に取得）
 
 
 @app.post("/api/chat")
@@ -37,21 +38,40 @@ async def chat(request: ChatRequest):
         system_instruction=(
             "あなたは優秀なAIアシスタントです。"
             "ユーザーの質問に対して、論理的かつ丁寧に回答してください。"
-            "必要に応じてステップバイステップで説明し、具体例を交えて答えてください。"
+            "PDFが共有されている場合は、その内容をもとに回答してください。"
         ),
     )
 
-    # Gemini は role が "user" / "model"（"assistant" は不可）
-    history = [
-        {
-            "role": "user" if m.role == "user" else "model",
-            "parts": [m.content],
-        }
-        for m in request.history
-    ]
+    # --- 会話履歴を構築 ---
+    # PDF が渡されている場合、最初のユーザーメッセージに file_data を添付する
+    history = []
+    pdf_attached = False
+
+    for m in request.history:
+        role = "user" if m.role == "user" else "model"
+        if role == "user" and request.file_uri and not pdf_attached:
+            history.append({
+                "role": "user",
+                "parts": [
+                    {"file_data": {"mime_type": "application/pdf", "file_uri": request.file_uri}},
+                    m.content,
+                ],
+            })
+            pdf_attached = True
+        else:
+            history.append({"role": role, "parts": [m.content]})
 
     chat_session = model.start_chat(history=history)
-    response = chat_session.send_message(request.message)
+
+    # 現在のメッセージ（PDF がまだ添付されていなければここで添付）
+    if request.file_uri and not pdf_attached:
+        current_parts = [
+            {"file_data": {"mime_type": "application/pdf", "file_uri": request.file_uri}},
+            request.message,
+        ]
+        response = chat_session.send_message(current_parts)
+    else:
+        response = chat_session.send_message(request.message)
 
     return {"response": response.text}
 
