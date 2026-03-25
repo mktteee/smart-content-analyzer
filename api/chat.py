@@ -1,11 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from mangum import Mangum
 import google.generativeai as genai
 import os
-import json
 
 app = FastAPI()
 
@@ -53,22 +51,9 @@ async def chat(request: ChatRequest):
     ]
 
     chat_session = model.start_chat(history=history)
+    response = chat_session.send_message(request.message)
 
-    def stream_response():
-        response = chat_session.send_message(request.message, stream=True)
-        for chunk in response:
-            if chunk.text:
-                yield f"data: {json.dumps({'text': chunk.text})}\n\n"
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(
-        stream_response(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return {"response": response.text}
 
 
 # Vercel serverless handler

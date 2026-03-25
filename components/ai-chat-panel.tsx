@@ -109,48 +109,19 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
       })
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      if (!res.body) throw new Error("No response body")
 
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let started = false
+      const data = await res.json()
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const lines = decoder.decode(value, { stream: true }).split("\n")
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue
-          const data = line.slice(6)
-          if (data === "[DONE]") continue
-
-          try {
-            const { text } = JSON.parse(data)
-            if (!started) {
-              started = true
-              setIsLoading(false)
-              setMessages((prev) => [
-                ...prev,
-                { id: assistantId, role: "assistant", content: text, timestamp: new Date() },
-              ])
-            } else {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId ? { ...m, content: m.content + text } : m
-                )
-              )
-            }
-          } catch {
-            // JSON parse error は無視
-          }
-        }
-      }
-
-      if (!started) setIsLoading(false)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: assistantId,
+          role: "assistant",
+          content: data.response ?? "回答を取得できませんでした。",
+          timestamp: new Date(),
+        },
+      ])
     } catch {
-      setIsLoading(false)
       setMessages((prev) => [
         ...prev,
         {
@@ -160,6 +131,8 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
           timestamp: new Date(),
         },
       ])
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -229,6 +202,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
               >
                 <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
                 <p
+                  suppressHydrationWarning
                   className={cn(
                     "mt-1 text-[10px]",
                     message.role === "user" ? "text-primary-foreground/60" : "text-muted-foreground"
