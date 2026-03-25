@@ -73,28 +73,31 @@ async def chat(request: ChatRequest):
         else:
             history.append({"role": role, "parts": [m.content]})
 
-    chat_session = model.start_chat(history=history)
+    try:
+        chat_session = model.start_chat(history=history)
 
-    # 現在のメッセージ
-    if not context_injected:
-        # 履歴がない（初回メッセージ）
-        current_parts = []
+        # 現在のメッセージ
+        if not context_injected:
+            current_parts = []
 
-        if request.file_uri:
-            current_parts.append({"file_data": {"mime_type": "application/pdf", "file_uri": request.file_uri}})
+            if request.file_uri:
+                current_parts.append({"file_data": {"mime_type": "application/pdf", "file_uri": request.file_uri}})
 
-        if request.document_context:
-            current_parts.append(
-                f"【参照ドキュメント】\n{request.document_context}\n\n【質問】\n{request.message}"
-            )
+            if request.document_context:
+                current_parts.append(
+                    f"【参照ドキュメント】\n{request.document_context}\n\n【質問】\n{request.message}"
+                )
+            else:
+                current_parts.append(request.message)
+
+            response = chat_session.send_message(current_parts)
         else:
-            current_parts.append(request.message)
+            response = chat_session.send_message(request.message)
 
-        response = chat_session.send_message(current_parts)
-    else:
-        response = chat_session.send_message(request.message)
+        return {"response": response.text}
 
-    return {"response": response.text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gemini API エラー: {type(e).__name__}: {str(e)}")
 
 
 # Vercel serverless handler
