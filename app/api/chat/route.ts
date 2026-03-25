@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import { GoogleGenerativeAI, Content, Part } from "@google/generative-ai"
+import { GoogleGenerativeAI } from "@google/generative-ai"
+
+export const maxDuration = 30
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GEMINI_API_KEY
@@ -31,7 +33,7 @@ export async function POST(req: NextRequest) {
     })
 
     // Build chat history
-    const chatHistory: Content[] = []
+    const chatHistory: { role: string; parts: { text: string }[] }[] = []
     let contextInjected = false
 
     for (const m of history) {
@@ -50,15 +52,11 @@ export async function POST(req: NextRequest) {
     const chat = model.startChat({ history: chatHistory })
 
     // Build current message parts
-    const parts: Part[] = []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parts: any[] = []
 
     if (pdf_base64) {
-      parts.push({
-        inlineData: {
-          mimeType: "application/pdf",
-          data: pdf_base64,
-        },
-      })
+      parts.push({ inlineData: { mimeType: "application/pdf", data: pdf_base64 } })
     }
 
     if (!contextInjected && document_context) {
