@@ -70,7 +70,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages[activeTab] || [])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [pdfUri, setPdfUri] = useState<string | null>(null)
+  const [pdfBase64, setPdfBase64] = useState<string | null>(null)
   const [pdfName, setPdfName] = useState<string | null>(null)
   const [docContext, setDocContext] = useState<string | null>(null)
   const [docName, setDocName] = useState<string | null>(null)
@@ -81,7 +81,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
 
   useEffect(() => {
     setMessages(initialMessages[activeTab] || [])
-    setPdfUri(null)
+    setPdfBase64(null)
     setPdfName(null)
     setDocContext(null)
     setDocName(null)
@@ -100,9 +100,9 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
     const res = await fetch("/api/upload", { method: "POST", body: formData })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail ?? `HTTP ${res.status}`)
+      throw new Error(err.error ?? `HTTP ${res.status}`)
     }
-    return res.json() as Promise<{ file_uri: string; display_name: string }>
+    return res.json() as Promise<{ pdf_base64: string; display_name: string }>
   }
 
   const handleLoadDemo = async () => {
@@ -149,7 +149,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
 
     try {
       const data = await uploadFileToApi(file)
-      setPdfUri(data.file_uri)
+      setPdfBase64(data.pdf_base64)
       setPdfName(data.display_name)
 
       // アップロード完了メッセージをチャットに追加
@@ -204,7 +204,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
         body: JSON.stringify({
           message: userMessage.content,
           history,
-          ...(pdfUri ? { file_uri: pdfUri } : {}),
+          ...(pdfBase64 ? { pdf_base64: pdfBase64 } : {}),
           ...(docContext ? { document_context: docContext } : {}),
         }),
       })
@@ -356,7 +356,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
           <FileText className="size-4 shrink-0 text-blue-500" />
           <span className="flex-1 truncate text-xs text-foreground">{pdfName}</span>
           <button
-            onClick={() => { setPdfUri(null); setPdfName(null) }}
+            onClick={() => { setPdfBase64(null); setPdfName(null) }}
             className="rounded p-0.5 text-muted-foreground hover:text-foreground"
             title="PDFを削除"
           >
@@ -417,7 +417,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
           </Button>
           <Textarea
             ref={textareaRef}
-            placeholder={pdfUri ? "PDFについて質問してください..." : "メッセージを入力..."}
+            placeholder={pdfBase64 ? "PDFについて質問してください..." : "メッセージを入力..."}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
