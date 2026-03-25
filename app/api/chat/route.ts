@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
     }
     contents.push({ role: "user", parts: currentParts })
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`
 
     console.log("Gemini API呼び出し開始")
     const res = await fetch(url, {
