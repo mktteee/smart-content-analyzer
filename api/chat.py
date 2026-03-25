@@ -35,50 +35,61 @@ async def chat(request: ChatRequest):
 
     genai.configure(api_key=api_key)
 
-    system = (
-        "あなたは優秀なAIアシスタントです。"
-        "ユーザーの質問に対して、論理的かつ丁寧に回答してください。"
-        "PDFやドキュメントが共有されている場合は、その内容をもとに回答してください。"
-    )
-    if request.document_context:
-        system += (
-            "\n\n以下のドキュメントが参照資料として提供されています。"
-            "ユーザーの質問にはこの資料の内容をもとに回答してください。\n\n"
-            + request.document_context
-        )
-
     model = genai.GenerativeModel(
         model_name="gemini-2.0-flash",
-        system_instruction=system,
+        system_instruction=(
+            "あなたは優秀なAIアシスタントです。"
+            "ユーザーの質問に対して、論理的かつ丁寧に回答してください。"
+            "ドキュメントやPDFが共有されている場合は、その内容をもとに回答してください。"
+        ),
     )
 
     # --- 会話履歴を構築 ---
-    # PDF が渡されている場合、最初のユーザーメッセージに file_data を添付する
     history = []
+    context_injected = False
     pdf_attached = False
 
     for m in request.history:
         role = "user" if m.role == "user" else "model"
-        if role == "user" and request.file_uri and not pdf_attached:
-            history.append({
-                "role": "user",
-                "parts": [
-                    {"file_data": {"mime_type": "application/pdf", "file_uri": request.file_uri}},
-                    m.content,
-                ],
-            })
-            pdf_attached = True
+
+        if role == "user" and not context_injected:
+            parts = []
+
+            # PDF を最初のユーザーメッセージに添付
+            if request.file_uri and not pdf_attached:
+                parts.append({"file_data": {"mime_type": "application/pdf", "file_uri": request.file_uri}})
+                pdf_attached = True
+
+            # テキストドキュメントを最初のユーザーメッセージの先頭に挿入
+            if request.document_context:
+                parts.append(
+                    f"【参照ドキュメント】\n{request.document_context}\n\n【質問】\n{m.content}"
+                )
+            else:
+                parts.append(m.content)
+
+            history.append({"role": "user", "parts": parts})
+            context_injected = True
         else:
             history.append({"role": role, "parts": [m.content]})
 
     chat_session = model.start_chat(history=history)
 
-    # 現在のメッセージ（PDF がまだ添付されていなければここで添付）
-    if request.file_uri and not pdf_attached:
-        current_parts = [
-            {"file_data": {"mime_type": "application/pdf", "file_uri": request.file_uri}},
-            request.message,
-        ]
+    # 現在のメッセージ
+    if not context_injected:
+        # 履歴がない（初回メッセージ）
+        current_parts = []
+
+        if request.file_uri:
+            current_parts.append({"file_data": {"mime_type": "application/pdf", "file_uri": request.file_uri}})
+
+        if request.document_context:
+            current_parts.append(
+                f"【参照ドキュメント】\n{request.document_context}\n\n【質問】\n{request.message}"
+            )
+        else:
+            current_parts.append(request.message)
+
         response = chat_session.send_message(current_parts)
     else:
         response = chat_session.send_message(request.message)
