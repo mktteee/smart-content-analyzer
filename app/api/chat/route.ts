@@ -3,8 +3,13 @@ import { NextRequest, NextResponse } from "next/server"
 export const maxDuration = 30
 
 export async function POST(req: NextRequest) {
+  console.log("=== /api/chat 受領開始 ===")
+
   const apiKey = process.env.GEMINI_API_KEY
+  console.log("APIキー存在:", !!apiKey)
+
   if (!apiKey) {
+    console.error("GEMINI_API_KEY が未設定")
     return NextResponse.json({ error: "GEMINI_API_KEY が設定されていません" }, { status: 500 })
   }
 
@@ -17,7 +22,9 @@ export async function POST(req: NextRequest) {
 
   try {
     data = await req.json()
-  } catch {
+    console.log("リクエスト受信 message:", data?.message?.slice(0, 30))
+  } catch (e) {
+    console.error("JSON parse error:", e)
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
@@ -55,6 +62,7 @@ export async function POST(req: NextRequest) {
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`
 
+    console.log("Gemini API呼び出し開始")
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
