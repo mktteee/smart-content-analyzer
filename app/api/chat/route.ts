@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { GoogleGenerativeAI } from "@google/generative-ai"
 
 export const maxDuration = 30
-export const runtime = "nodejs"
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GEMINI_API_KEY
@@ -26,15 +24,8 @@ export async function POST(req: NextRequest) {
   const { message, history = [], pdf_base64, document_context } = data
 
   try {
-    const genai = new GoogleGenerativeAI(apiKey)
-    const model = genai.getGenerativeModel({
-      model: "gemini-2.0-flash",
-      systemInstruction:
-        "あなたは優秀なAIアシスタントです。ユーザーの質問に対して、論理的かつ丁寧に回答してください。ドキュメントやPDFが共有されている場合は、その内容をもとに回答してください。",
-    })
-
-    // Build chat history
-    const chatHistory: { role: string; parts: { text: string }[] }[] = []
+    // Build contents array for Gemini REST API
+    const contents: { role: string; parts: object[] }[] = []
     let contextInjected = false
 
     for (const m of history) {
@@ -43,31 +34,47 @@ export async function POST(req: NextRequest) {
         const text = document_context
           ? `【参照ドキュメント】\n${document_context}\n\n【質問】\n${m.content}`
           : m.content
-        chatHistory.push({ role: "user", parts: [{ text }] })
+        contents.push({ role: "user", parts: [{ text }] })
         contextInjected = true
       } else {
-        chatHistory.push({ role, parts: [{ text: m.content }] })
+        contents.push({ role, parts: [{ text: m.content }] })
       }
     }
 
-    const chat = model.startChat({ history: chatHistory })
-
-    // Build current message parts
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parts: any[] = []
-
+    // Current message
+    const currentParts: object[] = []
     if (pdf_base64) {
-      parts.push({ inlineData: { mimeType: "application/pdf", data: pdf_base64 } })
+      currentParts.push({ inlineData: { mimeType: "application/pdf", data: pdf_base64 } })
     }
-
     if (!contextInjected && document_context) {
-      parts.push({ text: `【参照ドキュメント】\n${document_context}\n\n【質問】\n${message}` })
+      currentParts.push({ text: `【参照ドキュメント】\n${document_context}\n\n【質問】\n${message}` })
     } else {
-      parts.push({ text: message })
+      currentParts.push({ text: message })
+    }
+    contents.push({ role: "user", parts: currentParts })
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: {
+          parts: [{
+            text: "あなたは優秀なAIアシスタントです。ユーザーの質問に対して、論理的かつ丁寧に回答してください。ドキュメントやPDFが共有されている場合は、その内容をもとに回答してください。",
+          }],
+        },
+        contents,
+      }),
+    })
+
+    if (!res.ok) {
+      const errBody = await res.text()
+      return NextResponse.json({ error: errBody }, { status: 500 })
     }
 
-    const result = await chat.sendMessage(parts)
-    const text = result.response.text()
+    const json = await res.json()
+    const text: string = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "回答を取得できませんでした。"
 
     return NextResponse.json({ response: text })
   } catch (e) {
