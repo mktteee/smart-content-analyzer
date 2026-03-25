@@ -275,7 +275,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto p-4" ref={scrollRef}>
         <div className="space-y-4">
           {messages.map((message) => (
             <div
@@ -333,7 +333,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
             </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
 
       {/* ドキュメント読み込み中バッジ（Markdown / テキスト） */}
       {docName && (
