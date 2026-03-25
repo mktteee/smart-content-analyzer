@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Send, Bot, User, Sparkles, Loader2, Paperclip, X, FileText } from "lucide-react"
+import { Send, Bot, User, Sparkles, Loader2, Paperclip, X, FileText, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -89,25 +89,64 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
     }
   }, [messages])
 
+  const uploadFileToApi = async (file: File) => {
+    const formData = new FormData()
+    formData.append("file", file)
+
+    const res = await fetch("/api/upload", { method: "POST", body: formData })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail ?? `HTTP ${res.status}`)
+    }
+    return res.json() as Promise<{ file_uri: string; display_name: string }>
+  }
+
+  const handleLoadDemo = async () => {
+    setIsUploading(true)
+    try {
+      const res = await fetch("/sample.md")
+      if (!res.ok) throw new Error("デモファイルの取得に失敗しました")
+      const text = await res.text()
+      const blob = new Blob([text], { type: "text/markdown" })
+      const file = new File([blob], "開発議事録.md", { type: "text/markdown" })
+
+      const data = await uploadFileToApi(file)
+      setPdfUri(data.file_uri)
+      setPdfName(data.display_name)
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `📄 **${data.display_name}** を読み込みました。\nこのドキュメントについて質問してください。例：「要約して」「開発の流れを教えて」「使った技術は？」`,
+          timestamp: new Date(),
+        },
+      ])
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "不明なエラー"
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `デモファイルの読み込みに失敗しました: ${msg}`,
+          timestamp: new Date(),
+        },
+      ])
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
     setIsUploading(true)
 
-    const formData = new FormData()
-    formData.append("file", file)
-
     try {
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail ?? `HTTP ${res.status}`)
-      }
-      const data = await res.json()
+      const data = await uploadFileToApi(file)
       setPdfUri(data.file_uri)
       setPdfName(data.display_name)
 
@@ -330,7 +369,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf"
+          accept=".pdf,.md,.txt"
           className="hidden"
           onChange={handleUpload}
         />
@@ -338,15 +377,25 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
           <Button
             size="icon"
             variant="outline"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={handleLoadDemo}
             disabled={isUploading || isLoading}
-            title="PDFをアップロード"
+            title="開発議事録（デモ資料）を読み込む"
             className="size-11 shrink-0"
           >
             {isUploading
               ? <Loader2 className="size-4 animate-spin" />
-              : <Paperclip className="size-4" />
+              : <BookOpen className="size-4" />
             }
+          </Button>
+          <Button
+            size="icon"
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading || isLoading}
+            title="ファイルをアップロード（PDF / Markdown）"
+            className="size-11 shrink-0"
+          >
+            <Paperclip className="size-4" />
           </Button>
           <Textarea
             ref={textareaRef}
@@ -367,7 +416,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
           </Button>
         </div>
         <p className="mt-2 text-center text-[10px] text-muted-foreground">
-          📎 PDFを添付 • Shift + Enter で改行 • Enter で送信
+          📖 デモ資料 • 📎 ファイル添付（PDF / MD） • Enter で送信
         </p>
       </div>
     </div>
