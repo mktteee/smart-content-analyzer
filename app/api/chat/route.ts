@@ -32,11 +32,15 @@ export async function POST(req: NextRequest) {
 
   try {
     // Build contents array for Gemini REST API
+    // Gemini requires conversation to start with "user" — skip leading model messages
     const contents: { role: string; parts: object[] }[] = []
     let contextInjected = false
+    let firstUserSeen = false
 
     for (const m of history) {
       const role = m.role === "user" ? "user" : "model"
+      if (role === "model" && !firstUserSeen) continue  // skip initial assistant greeting
+      firstUserSeen = true
       if (role === "user" && !contextInjected) {
         const text = document_context
           ? `【参照ドキュメント】\n${document_context}\n\n【質問】\n${m.content}`
@@ -78,6 +82,7 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const errBody = await res.text()
+      console.error("Gemini API error:", res.status, errBody)
       return NextResponse.json({ error: errBody }, { status: 500 })
     }
 
