@@ -3,14 +3,9 @@ import { NextRequest, NextResponse } from "next/server"
 export const maxDuration = 30
 
 export async function POST(req: NextRequest) {
-  console.log("=== /api/chat 受領開始 ===")
-
-  const apiKey = process.env.GEMINI_API_KEY
-  console.log("APIキー存在:", !!apiKey)
-
+  const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) {
-    console.error("GEMINI_API_KEY が未設定")
-    return NextResponse.json({ error: "GEMINI_API_KEY が設定されていません" }, { status: 500 })
+    return NextResponse.json({ error: "GROQ_API_KEY が設定されていません" }, { status: 500 })
   }
 
   let data: {
@@ -22,76 +17,78 @@ export async function POST(req: NextRequest) {
 
   try {
     data = await req.json()
-    console.log("リクエスト受信 message:", data?.message?.slice(0, 30))
-  } catch (e) {
-    console.error("JSON parse error:", e)
+  } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
   const { message, history = [], pdf_base64, document_context } = data
 
   try {
-    // Build contents array for Gemini REST API
-    // Gemini requires conversation to start with "user" — skip leading model messages
-    const contents: { role: string; parts: object[] }[] = []
-    let contextInjected = false
+    // Build messages array (OpenAI-compatible format)
+    const messages: { role: string; content: string }[] = [
+      {
+        role: "system",
+        content:
+          "あなたは優秀なAIアシスタントです。ユーザーの質問に対して、論理的かつ丁寧に回答してください。ドキュメントが共有されている場合は、その内容をもとに回答してください。",
+      },
+    ]
+
+    // Add history (skip leading assistant messages)
     let firstUserSeen = false
+    let contextInjected = false
 
     for (const m of history) {
-      const role = m.role === "user" ? "user" : "model"
-      if (role === "model" && !firstUserSeen) continue  // skip initial assistant greeting
+      const role = m.role === "user" ? "user" : "assistant"
+      if (role === "assistant" && !firstUserSeen) continue
       firstUserSeen = true
-      if (role === "user" && !contextInjected) {
-        const text = document_context
-          ? `【参照ドキュメント】\n${document_context}\n\n【質問】\n${m.content}`
-          : m.content
-        contents.push({ role: "user", parts: [{ text }] })
+
+      if (role === "user" && !contextInjected && document_context) {
+        messages.push({
+          role: "user",
+          content: `【参照ドキュメント】\n${document_context}\n\n【質問】\n${m.content}`,
+        })
         contextInjected = true
       } else {
-        contents.push({ role, parts: [{ text: m.content }] })
+        messages.push({ role, content: m.content })
       }
     }
 
-    // Current message
-    const currentParts: object[] = []
-    if (pdf_base64) {
-      currentParts.push({ inlineData: { mimeType: "application/pdf", data: pdf_base64 } })
-    }
+    // Current user message
+    // Note: Groq text-only models don't support inline PDF — include extracted hint if present
+    let userContent = message
     if (!contextInjected && document_context) {
-      currentParts.push({ text: `【参照ドキュメント】\n${document_context}\n\n【質問】\n${message}` })
-    } else {
-      currentParts.push({ text: message })
+      userContent = `【参照ドキュメント】\n${document_context}\n\n【質問】\n${message}`
+    } else if (pdf_base64) {
+      userContent = `（PDFが添付されています。内容に基づいて回答してください）\n\n${message}`
     }
-    contents.push({ role: "user", parts: currentParts })
+    messages.push({ role: "user", content: userContent })
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`
-
-    console.log("Gemini API呼び出し開始")
-    const res = await fetch(url, {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
       body: JSON.stringify({
-        system_instruction: {
-          parts: [{
-            text: "あなたは優秀なAIアシスタントです。ユーザーの質問に対して、論理的かつ丁寧に回答してください。ドキュメントやPDFが共有されている場合は、その内容をもとに回答してください。",
-          }],
-        },
-        contents,
+        model: "llama-3.3-70b-versatile",
+        messages,
+        max_tokens: 2048,
       }),
     })
 
     if (!res.ok) {
       const errBody = await res.text()
-      console.error("Gemini API error:", res.status, errBody)
+      console.error("Groq API error:", res.status, errBody)
       return NextResponse.json({ error: errBody }, { status: 500 })
     }
 
     const json = await res.json()
-    const text: string = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "回答を取得できませんでした。"
+    const text: string = json.choices?.[0]?.message?.content ?? "回答を取得できませんでした。"
 
     return NextResponse.json({ response: text })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
+    console.error("Unexpected error:", msg)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
