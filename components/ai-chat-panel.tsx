@@ -72,6 +72,8 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [pdfUri, setPdfUri] = useState<string | null>(null)
   const [pdfName, setPdfName] = useState<string | null>(null)
+  const [docContext, setDocContext] = useState<string | null>(null)
+  const [docName, setDocName] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -81,6 +83,8 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
     setMessages(initialMessages[activeTab] || [])
     setPdfUri(null)
     setPdfName(null)
+    setDocContext(null)
+    setDocName(null)
   }, [activeTab])
 
   useEffect(() => {
@@ -105,21 +109,19 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
     setIsUploading(true)
     try {
       const res = await fetch("/sample.md")
-      if (!res.ok) throw new Error("デモファイルの取得に失敗しました")
+      if (!res.ok) throw new Error(`デモファイルの取得に失敗しました (${res.status})`)
       const text = await res.text()
-      const blob = new Blob([text], { type: "text/markdown" })
-      const file = new File([blob], "開発議事録.md", { type: "text/markdown" })
 
-      const data = await uploadFileToApi(file)
-      setPdfUri(data.file_uri)
-      setPdfName(data.display_name)
+      // テキストは Files API を使わずそのまま state に保存 → chat リクエストで渡す
+      setDocContext(text)
+      setDocName("開発議事録.md")
 
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now().toString(),
           role: "assistant",
-          content: `📄 **${data.display_name}** を読み込みました。\nこのドキュメントについて質問してください。例：「要約して」「開発の流れを教えて」「使った技術は？」`,
+          content: `📄 **開発議事録.md** を読み込みました。\nこのドキュメントについて質問してください。\n例：「要約して」「開発の流れを教えて」「使った技術は？」「トラブルはあった？」`,
           timestamp: new Date(),
         },
       ])
@@ -203,6 +205,7 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
           message: userMessage.content,
           history,
           ...(pdfUri ? { file_uri: pdfUri } : {}),
+          ...(docContext ? { document_context: docContext } : {}),
         }),
       })
 
@@ -331,6 +334,21 @@ export function AIChatPanel({ activeTab }: AIChatPanelProps) {
           )}
         </div>
       </ScrollArea>
+
+      {/* ドキュメント読み込み中バッジ（Markdown / テキスト） */}
+      {docName && (
+        <div className="flex items-center gap-2 border-t border-border bg-green-500/5 px-4 py-2">
+          <BookOpen className="size-4 shrink-0 text-green-600" />
+          <span className="flex-1 truncate text-xs text-foreground">{docName}</span>
+          <button
+            onClick={() => { setDocContext(null); setDocName(null) }}
+            className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            title="ドキュメントを削除"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
 
       {/* PDF 添付中バッジ */}
       {pdfName && (

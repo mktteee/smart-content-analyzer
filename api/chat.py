@@ -23,7 +23,8 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[Message] = []
-    file_uri: str | None = None  # Gemini Files API の URI（PDFアップロード後に取得）
+    file_uri: str | None = None          # PDF（Gemini Files API）
+    document_context: str | None = None  # テキスト・Markdownの内容をそのまま渡す
 
 
 @app.post("/api/chat")
@@ -33,13 +34,22 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY が設定されていません")
 
     genai.configure(api_key=api_key)
+
+    system = (
+        "あなたは優秀なAIアシスタントです。"
+        "ユーザーの質問に対して、論理的かつ丁寧に回答してください。"
+        "PDFやドキュメントが共有されている場合は、その内容をもとに回答してください。"
+    )
+    if request.document_context:
+        system += (
+            "\n\n以下のドキュメントが参照資料として提供されています。"
+            "ユーザーの質問にはこの資料の内容をもとに回答してください。\n\n"
+            + request.document_context
+        )
+
     model = genai.GenerativeModel(
         model_name="gemini-2.0-flash",
-        system_instruction=(
-            "あなたは優秀なAIアシスタントです。"
-            "ユーザーの質問に対して、論理的かつ丁寧に回答してください。"
-            "PDFが共有されている場合は、その内容をもとに回答してください。"
-        ),
+        system_instruction=system,
     )
 
     # --- 会話履歴を構築 ---
